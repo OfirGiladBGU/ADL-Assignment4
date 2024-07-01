@@ -50,6 +50,9 @@ class Trainer:
         print(self.device)
 
     def _prepare_dataloaders(self):
+        import ssl
+        ssl._create_default_https_context = ssl._create_unverified_context
+
         self.transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
@@ -125,7 +128,7 @@ class Trainer:
         self.imshow(torchvision.utils.make_grid(images))
         print('GroundTruth: ', ' '.join(f'{self.classes[labels[j]]:5s}' for j in range(4)))
 
-        self.net = Net()
+        self.net = Net().to(self.device)
         PATH = './cifar_net.pth'
         self.net.load_state_dict(torch.load(PATH))
 
