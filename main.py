@@ -251,17 +251,57 @@ class Trainer:
             print(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
 
     def reconstruct_every_feature(self):
-      #print(len(list(self.trainloader)[0][0][0]))
-      train_image = [list(self.trainloader)[0][0][0]] # an array of one 32*32 picture
-      test_image = [list(self.testloader)[0][0][0]] # an array of one 32*32 picture
+      with torch.no_grad():
+        images, labels = next(iter(self.trainloader))
+        train_image = images[0].unsqueeze(0).to(self.device) # batch of one image
+        images, labels = next(iter(self.testloader))
+        test_image = images[0].unsqueeze(0).to(self.device) # batch of one image
 
-      self.net.set_isDeconvolution(True)
-      
-               
+        self.net.set_isDeconvolution(True)
+
+        print(f'Train image: ')
+        self.imshow(torchvision.utils.make_grid(train_image))
+
+        all_outputs = []  
+        for channel in range(6):
+          output = self.net(train_image,zero_all_except=channel,layer=1)
+          all_outputs.append(output)
+
+        concatenated_outputs = torch.cat(all_outputs, dim=0)  
+        print(f'Train image layer 1 deconvolutions: ')
+        self.imshow(torchvision.utils.make_grid(concatenated_outputs))
+        all_outputs = []  
+        for channel in range(3):
+          output = self.net(train_image,zero_all_except=channel,layer=2)
+          all_outputs.append(output)
+
+        concatenated_outputs = torch.cat(all_outputs, dim=0)  
+        print(f'Train image layer 2 deconvolutions: ')
+        self.imshow(torchvision.utils.make_grid(concatenated_outputs))
+
+        print(f'Test image: ')
+        self.imshow(torchvision.utils.make_grid(test_image))
+
+        all_outputs = []  
+        for channel in range(6):
+          output = self.net(test_image,zero_all_except=channel,layer=1)
+          all_outputs.append(output)
+
+        concatenated_outputs = torch.cat(all_outputs, dim=0)  
+        print(f'Test image layer 1 deconvolutions: ')
+        self.imshow(torchvision.utils.make_grid(concatenated_outputs))
+        all_outputs = []  
+        for channel in range(3):
+          output = self.net(test_image,zero_all_except=channel,layer=2)
+          all_outputs.append(output)
+
+        concatenated_outputs = torch.cat(all_outputs, dim=0)  
+        print(f'Test image layer 2 deconvolutions: ')
+        self.imshow(torchvision.utils.make_grid(concatenated_outputs)) 
 
 
 def task1():
-    shrinkFactor = 10
+    shrinkFactor = 100
     trainer = Trainer(shrinkFactor)
     trainer.display_images()
     trainer.train_network()
@@ -270,7 +310,7 @@ def task1():
     trainer.evaluate_per_class()
 
 def task2():
-    shrinkFactor = 10
+    shrinkFactor = 100
     trainer = Trainer(shrinkFactor,reconstructionRegularized=True)
     trainer.train_network()
     trainer.test_network()
@@ -278,9 +318,9 @@ def task2():
     trainer.evaluate_per_class()
 
 def task3():
-    shrinkFactor = 100
+    shrinkFactor = 10
     trainer = Trainer(shrinkFactor,reconstructionRegularized=True)
-    # trainer.train_network()
+    trainer.train_network()
     # trainer.test_network()
     # trainer.evaluate_network()
     # trainer.evaluate_per_class()
@@ -289,6 +329,6 @@ def task3():
 
 
 if __name__ == '__main__':
-    #task1()
-    #task2()
+    task1()
+    task2()
     task3()
