@@ -405,7 +405,7 @@ def task1():
 
 
 def task2():
-    shrink_factor = 10
+    shrink_factor = 1
     reconstruction_regularized = True
 
     trainer = Trainer(shrink_factor=shrink_factor, reconstruction_regularized=reconstruction_regularized)
@@ -417,7 +417,7 @@ def task2():
 
 
 def task3():
-    shrink_factor = 10
+    shrink_factor = 1
     reconstruction_regularized = True
 
     trainer = Trainer(shrink_factor=shrink_factor, reconstruction_regularized=reconstruction_regularized)
