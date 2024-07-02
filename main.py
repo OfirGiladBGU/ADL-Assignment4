@@ -410,10 +410,9 @@ def task2():
 
     trainer = Trainer(shrink_factor=shrink_factor, reconstruction_regularized=reconstruction_regularized)
     trainer.train_network()
-    trainer.test_network()
-    trainer.display_reconstructed_images()
     trainer.evaluate_network()
     trainer.evaluate_per_class()
+    trainer.display_reconstructed_images()
 
 
 def task3():
