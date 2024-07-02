@@ -12,7 +12,11 @@ from torch.utils.data import Subset
 class Net(nn.Module):
     def __init__(self):
         super().__init__()
+
+        # Custom attributes
         self.enable_deconvolutional_model = False
+        self.zero_all_except = -1
+        self.layer = -1
 
         # Original layers
         self.conv1 = nn.Conv2d(3, 6, 5)
@@ -27,19 +31,19 @@ class Net(nn.Module):
         self.conv2T = nn.ConvTranspose2d(16, 6, 5, stride=1, padding=0, output_padding=0)
         self.conv1T = nn.ConvTranspose2d(6, 3, 5, stride=1, padding=0, output_padding=0) 
 
-    def forward(self, x, zero_all_except=-1, layer=1):
+    def forward(self, x):
         z, indices1 = self.pool(F.relu(self.conv1(x)))
 
-        if zero_all_except != -1 and layer == 1:
+        if self.zero_all_except != -1 and self.layer == 1:
             for i in range(z.size(1)):
-                if i != zero_all_except:
+                if i != self.zero_all_except:
                     z[0, i, :, :] = 0
 
         z, indices2 = self.pool(F.relu(self.conv2(z)))
 
-        if zero_all_except != -1 and layer == 2:
+        if self.zero_all_except != -1 and self.layer == 2:
             for i in range(z.size(1)):
-                if i != zero_all_except:
+                if i != self.zero_all_except:
                     z[0, i, :, :] = 0
 
         # Original behavior
@@ -66,21 +70,11 @@ class CustomLoss(nn.Module):
         super().__init__()
         self.lambda_rec = lambda_rec
         self.ce_loss = nn.CrossEntropyLoss()
+        self.mse_loss = nn.MSELoss()
 
-    def forward(self, y_pred, y_true, x_recon, x_orig):  # customm loss function
+    def forward(self, y_pred, y_true, x_recon, x_orig):  # custom loss function
         ce_term = self.ce_loss(y_pred, y_true)
-        # rec_term = 0
-        # for example in range(x_recon.size(0)): #iterate all examples in batch
-        #     mse_all_channel = 0
-        #     for channel in range(x_recon.size(1)):  # Iterate over channels
-        #         flattened_recon = x_recon[example, channel, :, :].flatten(start_dim=1)
-        #         flattened_orig = x_orig[example, channel, :, :].flatten(start_dim=1)
-        #         mse_all_channel += F.mse_loss(flattened_recon, flattened_orig, reduction='sum')
-        #     rec_term += mse_all_channel / x_recon.size(1)
-        # rec_term /= x_recon.size(0)
-
-        # Use mean squared error for reconstruction loss
-        rec_term = F.mse_loss(x_recon, x_orig, reduction='sum') / (x_recon.size(0) * x_recon.size(1))
+        rec_term = self.mse_loss(x_recon, x_orig)
         total_loss = ce_term + self.lambda_rec * rec_term
         return total_loss
 
@@ -112,6 +106,22 @@ class Trainer:
 
         # Assuming that we are on a CUDA machine, this should print a CUDA device:
         print(self.device)
+
+    def _save_model(self):
+        PATH = './cifar_net.pth'
+        torch.save(self.net.state_dict(), PATH)
+
+    def _load_model(self):
+        # Save original state of deconvolutional model
+        net_original_state = self.net.enable_deconvolutional_model
+
+        # Load model
+        self.net = Net().to(self.device)
+        PATH = './cifar_net.pth'
+        self.net.load_state_dict(torch.load(PATH))
+
+        # Restore deconvolutional model state
+        self.net.enable_deconvolutional_model = net_original_state
 
     def _prepare_dataloaders(self):
         # Required to enable download of CIFAR-10 dataset
@@ -203,10 +213,13 @@ class Trainer:
         print('Finished Training')
 
         # Save model
-        PATH = './cifar_net.pth'
-        torch.save(self.net.state_dict(), PATH)
+        self._save_model()
 
     def test_network(self):
+        # Disable deconvolutional model (if enabled)
+        net_original_state = self.net.enable_deconvolutional_model
+        self.net.enable_deconvolutional_model = False
+
         dataiter = iter(self.testloader)
         images, labels = next(dataiter)
 
@@ -214,34 +227,22 @@ class Trainer:
         self.imshow(torchvision.utils.make_grid(images))
         print('GroundTruth: ', ' '.join(f'{self.classes[labels[j]]:5s}' for j in range(4)))
 
-        self.net = Net().to(self.device)
-        PATH = './cifar_net.pth'
-        self.net.load_state_dict(torch.load(PATH))
-
-        # Modified behavior
-        if self.reconstruction_regularized:
-            self.net.enable_deconvolutional_model = True
+        self._load_model()
 
         images = images.to(self.device)
         outputs = self.net(images)
 
-        # Original behavior
-        if not self.reconstruction_regularized:
-            _, predicted = torch.max(outputs, 1)
+        _, predicted = torch.max(outputs, 1)
 
-            print('Predicted: ', ' '.join(f'{self.classes[predicted[j]]:5s}'
-                                          for j in range(4)))
-        # Modified behavior
-        else:
-            outputs_y, outputs_x = outputs
-            _, predicted = torch.max(outputs_y, 1)
-            print('Predicted: ', ' '.join(f'{self.classes[predicted[j]]:5s}'
-                                          for j in range(4)))
+        print('Predicted: ', ' '.join(f'{self.classes[predicted[j]]:5s}'
+                                      for j in range(4)))
 
-            print('Corresponding reconstruction images:')
-            self.imshow(torchvision.utils.make_grid(outputs_x.cpu()))
+        # Restore deconvolutional model state
+        self.net.enable_deconvolutional_model = net_original_state
 
     def evaluate_network(self):
+        self._load_model()
+
         # Disable deconvolutional model (if enabled)
         net_original_state = self.net.enable_deconvolutional_model
         self.net.enable_deconvolutional_model = False
@@ -271,6 +272,8 @@ class Trainer:
         self.net.enable_deconvolutional_model = net_original_state
 
     def evaluate_per_class(self):
+        self._load_model()
+
         # Disable deconvolutional model (if enabled)
         net_original_state = self.net.enable_deconvolutional_model
         self.net.enable_deconvolutional_model = False
@@ -301,9 +304,30 @@ class Trainer:
         # Restore deconvolutional model state
         self.net.enable_deconvolutional_model = net_original_state
 
+    def display_reconstructed_images(self,):
+        if not self.reconstruction_regularized:
+            raise Exception('This method is only available when the network is reconstruction regularized')
+
+        self._load_model()
+
+        dataiter = iter(self.testloader)
+        images, labels = next(dataiter)
+
+        images = images.to(self.device)
+        _, outputs = self.net(images)
+
+        # Display reconstruction images
+        num_of_examples = 3
+        for i in range(num_of_examples):
+            result = torch.cat((images[i: i+1], outputs[i: i+1]), dim=0)
+            plt.title(label=f'Image {i + 1} and its reconstruction')
+            self.imshow(torchvision.utils.make_grid(result.cpu()))
+
     def reconstruct_every_feature(self):
         if not self.reconstruction_regularized:
             raise Exception('This method is only available when the network is reconstruction regularized')
+
+        self._load_model()
 
         with torch.no_grad():
             images, labels = next(iter(self.trainloader))
@@ -311,45 +335,61 @@ class Trainer:
             images, labels = next(iter(self.testloader))
             test_image = images[0].unsqueeze(0).to(self.device)  # batch of one image
 
-            print(f'Train image: ')
+            # Plot 1
+            plt.title(label='Train image')
             self.imshow(torchvision.utils.make_grid(train_image.cpu()))
 
-            all_outputs = []
+            # Plot 2
+            all_outputs = list()
             for channel in range(6):
-                _, output = self.net(train_image, zero_all_except=channel, layer=1)
+                self.net.zero_all_except = channel
+                self.net.layer = 1
+                _, output = self.net(train_image)
                 all_outputs.append(output)
-
             concatenated_outputs = torch.cat(all_outputs, dim=0)
-            print(f'Train image layer 1 deconvolutions: ')
+            plt.title(label='Train image layer 1 deconvolutions')
             self.imshow(torchvision.utils.make_grid(concatenated_outputs.cpu()))
-            all_outputs = []
+
+            # Plot 3
+            all_outputs = list()
             for channel in range(3):
-                _, output = self.net(train_image, zero_all_except=channel, layer=2)
+                self.net.zero_all_except = channel
+                self.net.layer = 2
+                _, output = self.net(train_image)
                 all_outputs.append(output)
-
             concatenated_outputs = torch.cat(all_outputs, dim=0)
-            print(f'Train image layer 2 deconvolutions: ')
+            plt.title(label='Train image layer 2 deconvolutions')
             self.imshow(torchvision.utils.make_grid(concatenated_outputs.cpu()))
 
-            print(f'Test image: ')
+            # Plot 4
+            plt.title(label='Test image')
             self.imshow(torchvision.utils.make_grid(test_image.cpu()))
 
-            all_outputs = []
+            # Plot 5
+            all_outputs = list()
             for channel in range(6):
-                _, output = self.net(test_image, zero_all_except=channel, layer=1)
+                self.net.zero_all_except = channel
+                self.net.layer = 1
+                _, output = self.net(test_image)
                 all_outputs.append(output)
-
             concatenated_outputs = torch.cat(all_outputs, dim=0)
-            print(f'Test image layer 1 deconvolutions: ')
+            plt.title(label='Test image layer 1 deconvolutions')
             self.imshow(torchvision.utils.make_grid(concatenated_outputs.cpu()))
-            all_outputs = []
+
+            # Plot 6
+            all_outputs = list()
             for channel in range(3):
-                _, output = self.net(test_image, zero_all_except=channel, layer=2)
+                self.net.zero_all_except = channel
+                self.net.layer = 2
+                _, output = self.net(test_image)
                 all_outputs.append(output)
-
             concatenated_outputs = torch.cat(all_outputs, dim=0)
-            print(f'Test image layer 2 deconvolutions: ')
+            plt.title(label='Test image layer 2 deconvolutions')
             self.imshow(torchvision.utils.make_grid(concatenated_outputs.cpu()))
+
+            # Restore zero_all_except and layer attributes
+            self.net.zero_all_except = -1
+            self.net.layer = -1
 
 
 def task1():
@@ -371,6 +411,7 @@ def task2():
     trainer = Trainer(shrink_factor=shrink_factor, reconstruction_regularized=reconstruction_regularized)
     trainer.train_network()
     trainer.test_network()
+    trainer.display_reconstructed_images()
     trainer.evaluate_network()
     trainer.evaluate_per_class()
 
@@ -381,13 +422,10 @@ def task3():
 
     trainer = Trainer(shrink_factor=shrink_factor, reconstruction_regularized=reconstruction_regularized)
     trainer.train_network()
-    # trainer.test_network()
-    # trainer.evaluate_network()
-    # trainer.evaluate_per_class()
     trainer.reconstruct_every_feature()
 
 
 if __name__ == '__main__':
-    task1()
+    # task1()
     task2()
-    task3()
+    # task3()
