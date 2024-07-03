@@ -70,11 +70,15 @@ class CustomLoss(nn.Module):
         super().__init__()
         self.lambda_rec = lambda_rec
         self.ce_loss = nn.CrossEntropyLoss()
-        self.mse_loss = nn.MSELoss()
+        self.mse_loss = nn.MSELoss(reduction='sum')
 
-    def forward(self, y_pred, y_true, x_recon, x_orig):  # custom loss function
+    def forward(self, y_pred, y_true, x_recon, x_orig):
+        batch_size = x_orig.size(0)
+        channel_size = x_orig.size(1)
+
+        # custom loss function
         ce_term = self.ce_loss(y_pred, y_true)
-        rec_term = self.mse_loss(x_recon, x_orig)
+        rec_term = self.mse_loss(x_recon, x_orig) / (batch_size * channel_size)
         total_loss = ce_term + self.lambda_rec * rec_term
         return total_loss
 
